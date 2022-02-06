@@ -90,4 +90,10 @@
   <class name="mag_calibration_status" type="mavros::std_plugins::MagCalStatusPlugin" base_class_type="mavros::plugin::PluginBase">
     <description>Send calibration status to ROS.</description>
   </class>
+  <class name="keyboard_command" type="mavros::extra_plugins::KeyboardCommandPlugin" base_class_type="mavros::plugin::PluginBase">
+     <description>Accepts keyboard command.</description>
+  </class>
+  <class name="keyboard_fly" type="mavros::extra_plugins::KeyboardFlyPlugin" base_class_type="mavros::plugin::PluginBase">
+     <description>Accepts keyboard command to fly.</description>
+  </class>
 </library>

@@ -95,6 +95,8 @@ add_library(mavros_extras
   src/plugins/vision_pose_estimate.cpp
   src/plugins/vision_speed_estimate.cpp
   src/plugins/wheel_odometry.cpp
+  src/plugins/keyboard_command.cpp
+  src/plugins/keyboard_fly.cpp
 )
 add_dependencies(mavros_extras
   ${catkin_EXPORTED_TARGETS}
@@ -119,6 +121,20 @@ target_link_libraries(servo_state_publisher
   ${catkin_LIBRARIES}
 )
 
+add_executable(offb_node
+  src/offb_node.cpp
+)
+target_link_libraries(offb_node
+  ${catkin_LIBRARIES}
+)
+
+add_executable(mavros_teleop_key
+  src/mavros_teleop_key.cpp
+)
+target_link_libraries(mavros_teleop_key
+  ${catkin_LIBRARIES}
+)
+
 #############
 ## Install ##
 #############
@@ -135,7 +151,7 @@ install(PROGRAMS
 )
 
 ## Mark executables and/or libraries for installation
-install(TARGETS mavros_extras visualization servo_state_publisher
+install(TARGETS mavros_extras visualization servo_state_publisher offb_node mavros_teleop_key
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
