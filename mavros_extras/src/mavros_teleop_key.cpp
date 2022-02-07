@@ -1,3 +1,13 @@
+/* // TODO : I still need to give the vehicle the hover thrust,
+ the best way to do this is from PX4 side and not here,
+ I will need to make a new ROS topic, publish it here (publish attitude only) and
+ subscribe to it from PX4 side. Then inside PX4 merge this message input (attitude only)
+ with the hover thrust uORB message that is enternally in PX4 from the hovering module.
+ and then give this setpoint to the PX4:
+ set_attitude_target(...) which is in line 270 in setpoint_raw.cpp module
+ (I need to figure things out)
+ */
+
 #include <ros/ros.h>
 #include <mavros_msgs/AttitudeTarget.h>
 #include <signal.h>
@@ -5,6 +15,9 @@
 #include <stdio.h>
 #include "boost/thread/mutex.hpp"
 #include "boost/thread/thread.hpp"
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include "tf2/transform_datatypes.h"
 
 #define KEYCODE_R 0x43
 #define KEYCODE_L 0x44
@@ -16,11 +29,20 @@
 #define KEYCODE_DD 0x64
 #define KEYCODE_S 0x73
 
+#define RAD2DEG  180/3.14;
+#define DEG2RAD  3.14/180;
+
 struct eulers{
   float phi;
   float theta;
   float psi;
 };
+
+eulers angles;
+float dcm[3];
+float q[4];
+tf2::Quaternion myQuaternion;
+float return_threshold = 0.01;
 
 class TeleopMavros
 {
@@ -33,12 +55,9 @@ private:
 
   ros::NodeHandle nh_;
   double thrust_, rudder_, aileron_, elevator_, t_scale_, r_scale_, a_scale_, e_scale_;
-  float q[4];
-  float phi, theta, psi;
-  float return_threshold = 0.01;
-  eulers angles;
+  //float phi, theta, psi;
   mavros_msgs::AttitudeTarget att;
-  mavros_msgs::AttitudeTarget back_att; // TODO
+  mavros_msgs::AttitudeTarget back_att;
   boost::mutex publish_mutex_;
   ros::Time first_publish_;
   ros::Time last_publish_;
@@ -62,6 +81,13 @@ TeleopMavros::TeleopMavros():
   //nh_.param("scale_rudder", r_scale_, r_scale_);
   //nh_.param("scale_aileron", a_scale_, a_scale_);
   //nh_.param("scale_elevator", e_scale_, e_scale_);
+    back_att.thrust = 0.491;
+    back_att.orientation.x = 0;
+    back_att.orientation.y = 0;
+    back_att.orientation.z = 0;
+    back_att.orientation.w = 1;
+
+    thrust_=rudder_=aileron_=elevator_=0;
 
   att_pub_ = nh_.advertise<mavros_msgs::AttitudeTarget>("mavros/setpoint_raw/attitude", 10);
 }
@@ -76,7 +102,6 @@ void quit(int sig)
   ros::shutdown();
   exit(0);
 }
-
 
 int main(int argc, char** argv)
 {
@@ -100,41 +125,6 @@ int main(int argc, char** argv)
   return(0);
 }
 
-void modify_att(mavros_msgs::AttitudeTarget *att){
-  if (att->orientation.w > 0.1){
-    att->orientation.w -= 0.02;
-  } else if(att->orientation.w < -0.1){
-    att->orientation.w += 0.02;
-  }
-
-/*   if(aileron_ > return_threshold){
-    aileron_ -= 0.02;
-  } else if (aileron_ < -return_threshold){
-    aileron_ += 0.02;
-  }
-  if(elevator_ > return_threshold){
-    elevator_ -= 0.02;
-  } else if (elevator_ < -return_threshold){
-    elevator_ += 0.02;
-  }
-  if(rudder_ > return_threshold){
-    rudder_ -= 0.02;
-  } else if(rudder_ < -return_threshold){
-    rudder_ += 0.02;
-  } */
-}
-
-void TeleopMavros::watchdog()
-{
-  boost::mutex::scoped_lock lock(publish_mutex_);
-  if ((ros::Time::now() > last_publish_ + ros::Duration(0.15))){
-  //&& (ros::Time::now() > first_publish_ + ros::Duration(0.30))){
-      //modify_att(&att);
-      att_pub_.publish(back_att); //TODO
-  }
-
-}
-
 void euler_to_quat(float *q, eulers* eul){
   // "Quaternion from (body 3(psi)-2(theta)-1(phi) euler angles"
 
@@ -151,33 +141,94 @@ void euler_to_quat(float *q, eulers* eul){
   q[3] = s1*c2*c3 - s2*s3*c1;
 }
 
-void check_limits(mavros_msgs::AttitudeTarget *att, eulers *e, double* thrust){
-  if (att->thrust > 0.9){
-    att->thrust = 0.9;
-    *thrust = 0.9;
-  } else if(att->thrust < 0.1){
-    att->thrust = 0.1;
-    *thrust = 0.1;
+void modify_att(mavros_msgs::AttitudeTarget *att, double *elevator_, double *aileron_, double *rudder_)
+{
+
+  double ph,th,ps;
+  tf2::Matrix3x3(myQuaternion).getRPY(ph,th,ps);
+
+  angles.phi = (float) ph;
+  angles.theta = (float) th;
+  angles.psi = (float) ps;
+
+  if(angles.theta > return_threshold){
+    angles.theta -= 0.04;
+    *aileron_ -= 0.04;
+  } else if (angles.theta < -return_threshold){
+    angles.theta += 0.04;
+    *aileron_ += 0.04;
   }
 
-  if (e->phi > 45){
-    e->phi = 45;
-  } else if(e->phi < -45){
-    e->phi = -45;
+  if(angles.phi > return_threshold){
+    angles.phi -= 0.04;
+    *elevator_ -= 0.04;
+  } else if (angles.phi < -return_threshold){
+    angles.phi += 0.04;
+    *elevator_ += 0.04;
+  }
+/*
+  if(angles.psi > return_threshold){
+    angles.psi -= 0.04;
+  } else if(angles.psi < -return_threshold){
+    angles.psi += 0.04;
+  }
+ */
+  myQuaternion.setRPY(angles.phi,angles.theta,angles.psi);
+  myQuaternion.normalize();
+  att->orientation.x = myQuaternion[0];
+  att->orientation.y = myQuaternion[1];
+  att->orientation.z = myQuaternion[2];
+  att->orientation.w = myQuaternion[3];
+
+}
+
+void TeleopMavros::watchdog()
+{
+  boost::mutex::scoped_lock lock(publish_mutex_);
+  if ((ros::Time::now() > last_publish_ + ros::Duration(0.15))){
+  //&& (ros::Time::now() > first_publish_ + ros::Duration(0.30))){
+      modify_att(&att, &elevator_, &aileron_, &rudder_);
+      att_pub_.publish(att);
   }
 
-  if (e->theta > 45){
-    e->theta = 45;
-  } else if(e->theta < -45){
-    e->theta = -45;
+}
+
+void check_limits(double* thrust_, double* elevator_, double* aileron_, double* rudder_){
+
+  if (*thrust_ > 0.4){
+    *thrust_ = 0.4;
+  } else if(*thrust_ < -0.4){
+    *thrust_ = -0.4;
   }
 
-/*   if (e->psi > 180){
-    e->psi = 180;
-  } else if(e->psi < -180){
-    e->psi = -180;
-  } */
 
+  *elevator_ = *elevator_ * RAD2DEG;
+  *aileron_  = *aileron_ * RAD2DEG;
+  *rudder_   = *rudder_ * RAD2DEG;
+
+  if (*elevator_ > 45){
+    *elevator_ = 45;
+  } else if(*elevator_ < -45){
+    *elevator_ = -45;
+  }
+
+  if (*aileron_ > 45){
+    *aileron_ = 45;
+  } else if(*aileron_ < -45){
+    *aileron_ = -45;
+  }
+
+  *elevator_ = *elevator_ * DEG2RAD;
+  *aileron_  = *aileron_ * DEG2RAD;
+  *rudder_   = *rudder_ * DEG2RAD;
+
+/*
+  if (*rudder_ > 45){
+    *rudder_ = 45;
+  } else if(*rudder_ < -45){
+    *rudder_ = -45;
+  }
+ */
 }
 
 void TeleopMavros::keyLoop()
@@ -201,7 +252,6 @@ void TeleopMavros::keyLoop()
   puts("Use arrow keys to move the drone.");
   puts("your options: up/down/left/right/w/s/a/d/q");
 
-  thrust_=rudder_=aileron_=elevator_=0;
   int i= 0;
 
   while (true)
@@ -244,12 +294,12 @@ void TeleopMavros::keyLoop()
         break;
       case KEYCODE_W:
         ROS_DEBUG("thrust more");
-        thrust_ += 0.05;
+        thrust_ += 0.01;
         //dirty = true;
         break;
       case KEYCODE_S:
         ROS_DEBUG("thrust less");
-        thrust_ -= 0.05;
+        thrust_ -= 0.01;
         //dirty = true;
         break;
       case KEYCODE_A:
@@ -268,19 +318,23 @@ void TeleopMavros::keyLoop()
     att.header.stamp = {0,0}; // {secs,nsecs}
     att.header.frame_id= "";
     att.type_mask = 0;// 7; // ignore body rates
+
+    att.body_rate.x=att.body_rate.y=att.body_rate.z=0;
+
+    check_limits(&thrust_, &elevator_, &aileron_, &rudder_);
+
     angles.phi = elevator_;
     angles.theta = aileron_;
     angles.psi = rudder_;
-    att.body_rate.x=att.body_rate.y=att.body_rate.z=0;
-    att.thrust = thrust_;
 
-    check_limits(&att, &angles, &thrust_);
+    myQuaternion.setRPY(angles.phi,angles.theta,angles.psi);
+    myQuaternion.normalize();
+    att.orientation.x = myQuaternion[0];
+    att.orientation.y = myQuaternion[1];
+    att.orientation.z = myQuaternion[2];
+    att.orientation.w = myQuaternion[3];
 
-    euler_to_quat(&q[0],&angles);
-    att.orientation.x = q[1];
-    att.orientation.y = q[2];
-    att.orientation.z = q[3];
-    att.orientation.w = q[0];
+    att.thrust = 0.49 + thrust_;
 
     boost::mutex::scoped_lock lock(publish_mutex_);
     last_publish_ = ros::Time::now();
