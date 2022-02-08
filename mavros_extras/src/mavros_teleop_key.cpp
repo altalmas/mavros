@@ -1,4 +1,8 @@
-/* // TODO : I still need to give the vehicle the hover thrust,
+// This keyboard tramsmitter works better with gazebo
+
+
+/* // TODO : Ideas:
+ 1. I still need to give the vehicle the hover thrust,
  the best way to do this is from PX4 side and not here,
  I will need to make a new ROS topic, publish it here (publish attitude only) and
  subscribe to it from PX4 side. Then inside PX4 merge this message input (attitude only)
@@ -6,6 +10,8 @@
  and then give this setpoint to the PX4:
  set_attitude_target(...) which is in line 270 in setpoint_raw.cpp module
  (I need to figure things out)
+
+ 2. integrate this with the object detection module using mavros
  */
 
 #include <ros/ros.h>
@@ -77,10 +83,6 @@ TeleopMavros::TeleopMavros():
   a_scale_(2.0),
   e_scale_(2.0)
 {
-  //nh_.param("scale_thrust", t_scale_, t_scale_);
-  //nh_.param("scale_rudder", r_scale_, r_scale_);
-  //nh_.param("scale_aileron", a_scale_, a_scale_);
-  //nh_.param("scale_elevator", e_scale_, e_scale_);
     back_att.thrust = 0.491;
     back_att.orientation.x = 0;
     back_att.orientation.y = 0;
@@ -123,22 +125,6 @@ int main(int argc, char** argv)
   //teleop_mavros.keyLoop();
 
   return(0);
-}
-
-void euler_to_quat(float *q, eulers* eul){
-  // "Quaternion from (body 3(psi)-2(theta)-1(phi) euler angles"
-
-  float s1 = sinf(eul->psi/2);
-  float c1 = cosf(eul->psi/2);
-  float s2 = sinf(eul->theta/2);
-  float c2 = cosf(eul->theta/2);
-  float s3 = sinf(eul->phi/2);
-  float c3 = cosf(eul->phi/2);
-
-  q[0] = s1*s2*s3 + c1*c2*c3;
-  q[1] = -s1*s2*c3 + s3*c1*c2;
-  q[2] = s1*s3*c2 + s2*c1*c3;
-  q[3] = s1*c2*c3 - s2*s3*c1;
 }
 
 void modify_att(mavros_msgs::AttitudeTarget *att, double *elevator_, double *aileron_, double *rudder_)
@@ -195,10 +181,10 @@ void TeleopMavros::watchdog()
 
 void check_limits(double* thrust_, double* elevator_, double* aileron_, double* rudder_){
 
-  if (*thrust_ > 0.4){
-    *thrust_ = 0.4;
-  } else if(*thrust_ < -0.4){
-    *thrust_ = -0.4;
+  if (*thrust_ > 0.1){
+    *thrust_ = 0.1;
+  } else if(*thrust_ < -0.1){
+    *thrust_ = -0.1;
   }
 
 
@@ -206,16 +192,16 @@ void check_limits(double* thrust_, double* elevator_, double* aileron_, double* 
   *aileron_  = *aileron_ * RAD2DEG;
   *rudder_   = *rudder_ * RAD2DEG;
 
-  if (*elevator_ > 45){
-    *elevator_ = 45;
-  } else if(*elevator_ < -45){
-    *elevator_ = -45;
+  if (*elevator_ > 25){
+    *elevator_ = 25;
+  } else if(*elevator_ < -25){
+    *elevator_ = -25;
   }
 
-  if (*aileron_ > 45){
-    *aileron_ = 45;
-  } else if(*aileron_ < -45){
-    *aileron_ = -45;
+  if (*aileron_ > 25){
+    *aileron_ = 25;
+  } else if(*aileron_ < -25){
+    *aileron_ = -25;
   }
 
   *elevator_ = *elevator_ * DEG2RAD;
@@ -256,11 +242,6 @@ void TeleopMavros::keyLoop()
 
   while (true)
   {
-    i++;
-    printf("In the loop : %d \n", i);
-
-    printf("1 \n");
-
     // get the next event from the keyboard
     if(read(kfd, &c, 1) < 0)
     { // report error
@@ -268,7 +249,7 @@ void TeleopMavros::keyLoop()
       exit(-1);
     }
 
-    ROS_DEBUG("value: 0x%02X\n", c);
+    printf("value: 0x%02X\n", c);
 
     switch(c)
     {
@@ -294,12 +275,12 @@ void TeleopMavros::keyLoop()
         break;
       case KEYCODE_W:
         ROS_DEBUG("thrust more");
-        thrust_ += 0.01;
+        thrust_ += 0.005;
         //dirty = true;
         break;
       case KEYCODE_S:
         ROS_DEBUG("thrust less");
-        thrust_ -= 0.01;
+        thrust_ -= 0.005;
         //dirty = true;
         break;
       case KEYCODE_A:
@@ -334,7 +315,7 @@ void TeleopMavros::keyLoop()
     att.orientation.z = myQuaternion[2];
     att.orientation.w = myQuaternion[3];
 
-    att.thrust = 0.49 + thrust_;
+    att.thrust = 0.70 + thrust_;
 
     boost::mutex::scoped_lock lock(publish_mutex_);
     last_publish_ = ros::Time::now();
@@ -344,7 +325,3 @@ void TeleopMavros::keyLoop()
 
   return;
 }
-
-/* void publish(mavros_msgs::AttitudeTarget att){
-
-} */
